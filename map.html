@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Find Us - FALCONS Theater</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        h1 {
+            margin-top: 20px;
+            color: #333;
+        }
+        #map {
+            height: 80vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Find Us on Google Maps</h1>
+
+<div id="map"></div>
+
+<script>
+function initMap() {
+    // Replace this with your actual coordinates
+    const theaterLocation = { lat: 40.748817, lng: -73.985428 };
+
+    const map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 15,
+        center: theaterLocation
+    });
+
+    const marker = new google.maps.Marker({
+        position: theaterLocation,
+        map: map,
+        title: 'FALCONS Theater'
+    });
+}
+</script>
+
+<!-- Google Maps API Script -->
+<script
+    src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap"
+    async defer>
+</script>
+<script>
+navigator.geolocation.getCurrentPosition(function(position) {
+    const userLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+    };
+
+    const map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 15,
+        center: userLocation
+    });
+
+    new google.maps.Marker({
+        position: userLocation,
+        map: map,
+        title: "You're here!"
+    });
+});
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,81 @@
+<?php
+session_start();
+include 'db.php';
+
+$login_error = '';
+
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    if ($username === '' || $password === '') {
+        $login_error = "Enter username and password.";
+    } else {
+        $stmt = $conn->prepare("SELECT id, username, password FROM admin WHERE LOWER(username) = LOWER(?) LIMIT 1");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $admin = $result ? $result->fetch_assoc() : null;
+        $stmt->close();
+
+        $passwordMatches = false;
+        if ($admin) {
+            $storedPassword = (string) $admin['password'];
+            $passwordMatches = hash_equals($storedPassword, $password);
+
+            if (!$passwordMatches && password_get_info($storedPassword)['algo'] !== null) {
+                $passwordMatches = password_verify($password, $storedPassword);
+            }
+        }
+
+        if ($admin && $passwordMatches) {
+            $_SESSION['admin_logged_in'] = true;
+            $_SESSION['admin_username'] = $admin['username'];
+            header("Location: AdminOnly.php");
+            exit();
+        }
+
+        $login_error = "Invalid login credentials.";
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login - FALCONS Theater</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body class="theme-body">
+  <div class="page-shell" style="max-width: 760px;">
+    <section class="page-hero">
+      <div class="hero-content">
+        <span class="eyebrow">Admin Access</span>
+        <h1>Secure the control room before you manage the theater.</h1>
+        <p class="hero-copy">Use your admin credentials to access bookings, upcoming releases, messages, and customer feedback from one dashboard.</p>
+      </div>
+    </section>
+
+    <section class="content-grid" style="margin-top: 24px;">
+      <div class="glass-panel surface-panel form-card">
+        <h2>Admin Login</h2>
+        <p class="form-copy">Default admin for this project: <strong>AFSALPG</strong> / <strong>560396</strong></p>
+
+        <?php if ($login_error): ?>
+          <div class="status-banner status-error"><?= htmlspecialchars($login_error) ?></div>
+        <?php endif; ?>
+
+        <form method="POST" action="admin_login.php" class="field-grid">
+          <input class="input" type="text" name="username" placeholder="Username" required />
+          <input class="input" type="password" name="password" placeholder="Password" required />
+          <button class="btn" type="submit">Login</button>
+        </form>
+
+        <a href="index.php" class="btn-outline" style="margin-top: 14px;">Back to Home</a>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

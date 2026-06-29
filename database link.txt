@@ -1,0 +1,24 @@
+CREATE TABLE bookings (
+    id INT(11) AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    phone VARCHAR(20),
+    seats TEXT,
+    movie VARCHAR(100),
+    totalAmount DECIMAL(10, 2),
+    time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE admin (
+    id INT(11) AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50),
+    password VARCHAR(255)
+);
+
+
+INSERT INTO admin (id, username, password)
+VALUES (1, 'AFSALPG', '560396');
+
+INSERT INTO admin (username, password)
+VALUES ('AFSALPG', '560396');
+
