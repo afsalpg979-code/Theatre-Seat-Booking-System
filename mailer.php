@@ -1,4 +1,7 @@
 <?php
+
+declare(strict_types=1);
+
 use PHPMailer\PHPMailer\Exception;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\SMTP;
@@ -9,345 +12,1456 @@ if (file_exists(__DIR__ . '/logger.php')) {
     require_once __DIR__ . '/logger.php';
 }
 
-function theaterMailConfig()
-{
-    $config = require __DIR__ . '/mail_config.php';
+/*
+|--------------------------------------------------------------------------
+| MAIL CONFIG
+|--------------------------------------------------------------------------
+*/
 
-    if (!is_array($config)) {
-        return [];
+function theaterMailConfig(): array
+{
+    static $config = null;
+
+    if ($config !== null) {
+        return $config;
     }
 
-    foreach (['host', 'username', 'password', 'from_email', 'from_name', 'secure', 'auth_type'] as $key) {
-        if (isset($config[$key]) && is_string($config[$key])) {
+    $configFile = __DIR__ . '/mail_config.php';
+
+    if (!file_exists($configFile)) {
+        $config = [];
+        return $config;
+    }
+
+    $loadedConfig = require $configFile;
+
+    if (!is_array($loadedConfig)) {
+        $config = [];
+        return $config;
+    }
+
+    $config = $loadedConfig;
+
+    foreach (
+        [
+            'host',
+            'username',
+            'password',
+            'from_email',
+            'from_name',
+            'secure',
+            'auth_type'
+        ] as $key
+    ) {
+        if (
+            isset($config[$key]) &&
+            is_string($config[$key])
+        ) {
             $config[$key] = trim($config[$key]);
         }
     }
 
-    if (isset($config['password']) && is_string($config['password'])) {
-        // Gmail app passwords are often copied with spaces for readability.
-        $config['password'] = str_replace(' ', '', $config['password']);
+    /*
+     * Gmail App Passwords are often copied with spaces:
+     *
+     * xxxx xxxx xxxx xxxx
+     *
+     * Remove whitespace automatically.
+     */
+    if (
+        isset($config['password']) &&
+        is_string($config['password'])
+    ) {
+        $config['password'] = preg_replace(
+            '/\s+/',
+            '',
+            $config['password']
+        );
     }
 
-    if (isset($config['port'])) {
-        $config['port'] = (int) $config['port'];
+    /*
+     * Default SMTP port.
+     */
+    $config['port'] = isset($config['port'])
+        ? (int) $config['port']
+        : 587;
+
+    if ($config['port'] <= 0) {
+        $config['port'] = 587;
     }
 
+    /*
+     * Encryption.
+     *
+     * 465 = SMTPS
+     * 587 = STARTTLS
+     */
     if (empty($config['secure'])) {
-        $config['secure'] = ((int) ($config['port'] ?? 587) === 465)
-            ? PHPMailer::ENCRYPTION_SMTPS
-            : PHPMailer::ENCRYPTION_STARTTLS;
+        $config['secure'] =
+            ($config['port'] === 465)
+                ? PHPMailer::ENCRYPTION_SMTPS
+                : PHPMailer::ENCRYPTION_STARTTLS;
     }
 
-    if (!isset($config['timeout']) || (int) $config['timeout'] <= 0) {
+    /*
+     * SMTP timeout.
+     */
+    $config['timeout'] = isset($config['timeout'])
+        ? (int) $config['timeout']
+        : 15;
+
+    if ($config['timeout'] <= 0) {
         $config['timeout'] = 15;
-    } else {
-        $config['timeout'] = (int) $config['timeout'];
     }
+
+    /*
+     * Debug disabled by default.
+     */
+    $config['debug'] = !empty($config['debug']);
 
     return $config;
 }
 
-function sanitizeMailConfigForLogging(array $config)
-{
+/*
+|--------------------------------------------------------------------------
+| SAFE CONFIG FOR LOGGING
+|--------------------------------------------------------------------------
+*/
+
+function sanitizeMailConfigForLogging(
+    array $config
+): array {
     $safe = $config;
 
-    if (!empty($safe['password'])) {
-        $safe['password'] = str_repeat('*', max(strlen((string) $safe['password']) - 4, 0))
-            . substr((string) $safe['password'], -4);
+    if (isset($safe['password'])) {
+        $safe['password'] = '********';
     }
 
     return $safe;
 }
 
-function theaterMailFailureMessage($errorMessage)
-{
-    $baseMessage = 'Mailer error: ' . $errorMessage;
-    $normalized = strtolower((string) $errorMessage);
+/*
+|--------------------------------------------------------------------------
+| EMAIL VALIDATION
+|--------------------------------------------------------------------------
+*/
 
-    if (
-        strpos($normalized, 'authenticate') !== false ||
-        strpos($normalized, '535') !== false ||
-        strpos($normalized, '534') !== false ||
-        strpos($normalized, 'username and password not accepted') !== false
-    ) {
-        return $baseMessage . ' Gmail rejected SMTP login. Use a 16-character Google app password, keep 2-step verification enabled, and confirm the Gmail address in mail_config.php matches the app-password account.';
+function theaterValidEmail(
+    string $email
+): bool {
+    $email = trim($email);
+
+    if ($email === '') {
+        return false;
     }
 
-    return $baseMessage . ' Check SMTP host, port, encryption, and credentials in mail_config.php.';
+    if (strlen($email) > 254) {
+        return false;
+    }
+
+    /*
+     * Prevent CRLF/header injection.
+     */
+    if (
+        strpos($email, "\r") !== false ||
+        strpos($email, "\n") !== false
+    ) {
+        return false;
+    }
+
+    return filter_var(
+        $email,
+        FILTER_VALIDATE_EMAIL
+    ) !== false;
 }
 
-function logTheaterMailFailure($context, $errorMessage)
-{
+/*
+|--------------------------------------------------------------------------
+| MAIL ERROR MESSAGE
+|--------------------------------------------------------------------------
+*/
+
+function theaterMailFailureMessage(
+    string $errorMessage
+): string {
+    $normalized = strtolower($errorMessage);
+
+    /*
+     * Gmail authentication errors.
+     */
+    if (
+        strpos($normalized, 'authenticate') !== false ||
+        strpos($normalized, 'authentication') !== false ||
+        strpos($normalized, '535') !== false ||
+        strpos($normalized, '534') !== false ||
+        strpos(
+            $normalized,
+            'username and password not accepted'
+        ) !== false
+    ) {
+        return
+            'Mailer authentication failed. ' .
+            'Check the Gmail address and 16-character App Password in mail_config.php.';
+    }
+
+    /*
+     * SMTP connection errors.
+     */
+    if (
+        strpos(
+            $normalized,
+            'could not connect'
+        ) !== false ||
+        strpos(
+            $normalized,
+            'connection refused'
+        ) !== false ||
+        strpos(
+            $normalized,
+            'timed out'
+        ) !== false ||
+        strpos(
+            $normalized,
+            'network is unreachable'
+        ) !== false
+    ) {
+        return
+            'Unable to connect to the mail server. ' .
+            'Please check SMTP host, port, and encryption settings.';
+    }
+
+    /*
+     * TLS / SSL problems.
+     */
+    if (
+        strpos($normalized, 'tls') !== false ||
+        strpos($normalized, 'ssl') !== false ||
+        strpos($normalized, 'certificate') !== false
+    ) {
+        return
+            'Secure SMTP connection failed. ' .
+            'Please check the SMTP encryption and port settings.';
+    }
+
+    return
+        'Unable to send the email right now. ' .
+        'Please try again later.';
+}
+
+/*
+|--------------------------------------------------------------------------
+| LOG MAIL FAILURE
+|--------------------------------------------------------------------------
+*/
+
+function logTheaterMailFailure(
+    string $context,
+    string $errorMessage
+): void {
     if (!class_exists('Logger')) {
         return;
     }
 
-    Logger::error('Mail delivery failed', [
-        'context' => $context,
-        'error' => $errorMessage,
-        'config' => sanitizeMailConfigForLogging(theaterMailConfig()),
-    ]);
+    try {
+        Logger::error(
+            'Mail delivery failed',
+            [
+                'context' => $context,
+                'error' => $errorMessage,
+                'config' =>
+                    sanitizeMailConfigForLogging(
+                        theaterMailConfig()
+                    ),
+            ]
+        );
+    } catch (\Throwable $e) {
+        /*
+         * Logging must never break mail delivery.
+         */
+    }
 }
 
-function theaterMailIsConfigured(&$deliveryNote = null)
-{
+/*
+|--------------------------------------------------------------------------
+| CHECK MAIL CONFIGURATION
+|--------------------------------------------------------------------------
+*/
+
+function theaterMailIsConfigured(
+    &$deliveryNote = null
+): bool {
     $config = theaterMailConfig();
-    $requiredKeys = ['host', 'port', 'username', 'password', 'from_email', 'from_name'];
+
+    $requiredKeys = [
+        'host',
+        'port',
+        'username',
+        'password',
+        'from_email',
+        'from_name'
+    ];
 
     foreach ($requiredKeys as $key) {
-        if (!isset($config[$key]) || trim((string) $config[$key]) === '') {
-            $deliveryNote = "Mail configuration is incomplete. Update mail_config.php.";
+        if (
+            !isset($config[$key]) ||
+            trim((string) $config[$key]) === ''
+        ) {
+            $deliveryNote =
+                'Mail configuration is incomplete. ' .
+                'Please update mail_config.php.';
+
             return false;
         }
     }
 
+    /*
+     * Validate SMTP username.
+     */
+    if (
+        !theaterValidEmail(
+            (string) $config['username']
+        )
+    ) {
+        $deliveryNote =
+            'SMTP username is not a valid email address.';
+
+        return false;
+    }
+
+    /*
+     * Validate sender address.
+     */
+    if (
+        !theaterValidEmail(
+            (string) $config['from_email']
+        )
+    ) {
+        $deliveryNote =
+            'Sender email address is invalid.';
+
+        return false;
+    }
+
+    /*
+     * Detect placeholder configuration.
+     */
     if (
         $config['username'] === 'yourgmail@gmail.com' ||
         $config['password'] === 'your_16_char_app_password' ||
         $config['from_email'] === 'yourgmail@gmail.com'
     ) {
-        $deliveryNote = "Update mail_config.php with your Gmail address and app password.";
+        $deliveryNote =
+            'Update mail_config.php with your Gmail address and App Password.';
+
         return false;
     }
 
     return true;
 }
 
-function createTheaterMailer()
+/*
+|--------------------------------------------------------------------------
+| CREATE MAILER
+|--------------------------------------------------------------------------
+*/
+
+function createTheaterMailer(): PHPMailer
 {
     $config = theaterMailConfig();
+
+    if (empty($config)) {
+        throw new Exception(
+            'Mail configuration is missing or invalid.'
+        );
+    }
+
     $mail = new PHPMailer(true);
 
+    /*
+     * SMTP.
+     */
     $mail->isSMTP();
-    $mail->Host = $config['host'];
+
+    $mail->Host =
+        (string) $config['host'];
+
     $mail->SMTPAuth = true;
-    $mail->Username = $config['username'];
-    $mail->Password = $config['password'];
-    $mail->SMTPSecure = $config['secure'];
-    $mail->Port = $config['port'];
-    $mail->Timeout = $config['timeout'];
+
+    $mail->Username =
+        (string) $config['username'];
+
+    $mail->Password =
+        (string) $config['password'];
+
+    $mail->Port =
+        (int) $config['port'];
+
+    $mail->SMTPSecure =
+        $config['secure'];
+
+    $mail->Timeout =
+        (int) $config['timeout'];
+
+    /*
+     * Allow STARTTLS when supported.
+     */
     $mail->SMTPAutoTLS = true;
-    $mail->CharSet = PHPMailer::CHARSET_UTF8;
-    $mail->setFrom($config['from_email'], $config['from_name']);
 
-    if (!empty($config['auth_type'])) {
-        $mail->AuthType = $config['auth_type'];
+    /*
+     * UTF-8.
+     */
+    $mail->CharSet =
+        PHPMailer::CHARSET_UTF8;
+
+    $mail->Encoding =
+        PHPMailer::ENCODING_BASE64;
+
+    /*
+     * Sender.
+     */
+    $mail->setFrom(
+        (string) $config['from_email'],
+        (string) $config['from_name']
+    );
+
+    /*
+     * Optional authentication type.
+     */
+    if (
+        !empty($config['auth_type'])
+    ) {
+        $mail->AuthType =
+            (string) $config['auth_type'];
     }
 
-    if (!empty($config['debug']) && class_exists('Logger')) {
-        $mail->SMTPDebug = SMTP::DEBUG_SERVER;
-        $mail->Debugoutput = static function ($message, $level) {
-            Logger::info('SMTP debug', [
-                'level' => $level,
-                'message' => trim((string) $message),
-            ]);
-        };
+    /*
+     * SMTP debug.
+     *
+     * Only use when explicitly enabled.
+     */
+    if (
+        !empty($config['debug']) &&
+        class_exists('Logger')
+    ) {
+        $mail->SMTPDebug =
+            SMTP::DEBUG_SERVER;
+
+        $mail->Debugoutput =
+            static function (
+                $message,
+                $level
+            ): void {
+                try {
+                    Logger::info(
+                        'SMTP debug',
+                        [
+                            'level' => $level,
+                            'message' =>
+                                trim(
+                                    (string) $message
+                                ),
+                        ]
+                    );
+                } catch (\Throwable $e) {
+                    // Ignore logging errors.
+                }
+            };
+    } else {
+        $mail->SMTPDebug =
+            SMTP::DEBUG_OFF;
     }
+
+    /*
+     * Normal email formatting.
+     */
+    $mail->WordWrap = 78;
 
     return $mail;
 }
 
-function ensureTicketMailSession()
+/*
+|--------------------------------------------------------------------------
+| SESSION
+|--------------------------------------------------------------------------
+*/
+
+function ensureTicketMailSession(): void
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
+    if (
+        session_status() !==
+        PHP_SESSION_ACTIVE
+    ) {
         session_start();
     }
 
-    if (!isset($_SESSION['ticket_mail_sent']) || !is_array($_SESSION['ticket_mail_sent'])) {
+    if (
+        !isset(
+            $_SESSION['ticket_mail_sent']
+        ) ||
+        !is_array(
+            $_SESSION['ticket_mail_sent']
+        )
+    ) {
         $_SESSION['ticket_mail_sent'] = [];
     }
 }
 
-function wasTicketMailSent(int $bookingId, string $recipient)
-{
+/*
+|--------------------------------------------------------------------------
+| DUPLICATE MAIL CHECK
+|--------------------------------------------------------------------------
+*/
+
+function wasTicketMailSent(
+    int $bookingId,
+    string $recipient
+): bool {
     ensureTicketMailSession();
-    $key = $bookingId . '|' . strtolower(trim($recipient));
-    return !empty($_SESSION['ticket_mail_sent'][$key]);
+
+    $key =
+        $bookingId .
+        '|' .
+        strtolower(
+            trim($recipient)
+        );
+
+    return !empty(
+        $_SESSION['ticket_mail_sent'][$key]
+    );
 }
 
-function markTicketMailSent(int $bookingId, string $recipient)
-{
+function markTicketMailSent(
+    int $bookingId,
+    string $recipient
+): void {
     ensureTicketMailSession();
-    $key = $bookingId . '|' . strtolower(trim($recipient));
-    $_SESSION['ticket_mail_sent'][$key] = date('Y-m-d H:i:s');
+
+    $key =
+        $bookingId .
+        '|' .
+        strtolower(
+            trim($recipient)
+        );
+
+    $_SESSION['ticket_mail_sent'][$key] =
+        date('Y-m-d H:i:s');
 }
 
-function resolveLoggedInUserEmail(mysqli $conn)
-{
+/*
+|--------------------------------------------------------------------------
+| LOGGED-IN USER EMAIL
+|--------------------------------------------------------------------------
+*/
+
+function resolveLoggedInUserEmail(
+    mysqli $conn
+) {
     ensureTicketMailSession();
 
-    $userId = intval($_SESSION['user_id'] ?? 0);
+    $userId =
+        intval(
+            $_SESSION['user_id'] ?? 0
+        );
+
     if ($userId <= 0) {
         return null;
     }
 
-    $stmt = $conn->prepare('SELECT email FROM clients WHERE id = ? LIMIT 1');
+    $stmt = $conn->prepare(
+        'SELECT email
+         FROM clients
+         WHERE id = ?
+         LIMIT 1'
+    );
+
     if (!$stmt) {
         return null;
     }
 
-    $stmt->bind_param('i', $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_assoc() : null;
-    $stmt->close();
+    $stmt->bind_param(
+        'i',
+        $userId
+    );
 
-    if (!$row || empty($row['email'])) {
+    if (!$stmt->execute()) {
+        $stmt->close();
         return null;
     }
 
-    return trim((string) $row['email']);
+    $result =
+        $stmt->get_result();
+
+    $row =
+        $result
+            ? $result->fetch_assoc()
+            : null;
+
+    $stmt->close();
+
+    if (
+        !$row ||
+        empty($row['email'])
+    ) {
+        return null;
+    }
+
+    $email =
+        trim(
+            (string) $row['email']
+        );
+
+    return theaterValidEmail($email)
+        ? $email
+        : null;
 }
 
-function buildTicketAbsoluteUrl(int $bookingId)
-{
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+/*
+|--------------------------------------------------------------------------
+| BUILD TICKET URL
+|--------------------------------------------------------------------------
+|
+| Kept compatible with your existing print1.php setup.
+| No mail_config.php / app_url changes required.
+|
+*/
 
-    $scheme = $isHttps ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+function buildTicketAbsoluteUrl(
+    int $bookingId
+): string {
+    $isHttps =
+        (
+            !empty($_SERVER['HTTPS']) &&
+            $_SERVER['HTTPS'] !== 'off'
+        )
+        ||
+        (
+            isset($_SERVER['SERVER_PORT']) &&
+            (string) $_SERVER['SERVER_PORT'] === '443'
+        )
+        ||
+        (
+            isset(
+                $_SERVER['HTTP_X_FORWARDED_PROTO']
+            ) &&
+            $_SERVER['HTTP_X_FORWARDED_PROTO'] ===
+                'https'
+        );
 
-    return $scheme . '://' . $host . ($basePath !== '' ? $basePath : '') . '/print1.php?id=' . $bookingId;
+    $scheme =
+        $isHttps
+            ? 'https'
+            : 'http';
+
+    $host =
+        $_SERVER['HTTP_HOST'] ??
+        'localhost';
+
+    /*
+     * Protect the Host value from
+     * unexpected CRLF characters.
+     */
+    $host = str_replace(
+        ["\r", "\n"],
+        '',
+        $host
+    );
+
+    $basePath =
+        rtrim(
+            str_replace(
+                '\\',
+                '/',
+                dirname(
+                    $_SERVER['SCRIPT_NAME'] ??
+                    ''
+                )
+            ),
+            '/'
+        );
+
+    if (
+        $basePath === '/' ||
+        $basePath === '.'
+    ) {
+        $basePath = '';
+    }
+
+    return
+        $scheme .
+        '://' .
+        $host .
+        $basePath .
+        '/print1.php?id=' .
+        intval($bookingId);
 }
 
-function formatTicketEmailDate($value)
-{
+/*
+|--------------------------------------------------------------------------
+| FORMAT DATE
+|--------------------------------------------------------------------------
+*/
+
+function formatTicketEmailDate(
+    $value
+): string {
     if (!is_string($value)) {
         return 'Not available';
     }
 
     $value = trim($value);
-    if ($value === '' || $value === '0000-00-00 00:00:00' || $value === '0000-00-00') {
+
+    if (
+        $value === '' ||
+        $value === '0000-00-00' ||
+        $value ===
+            '0000-00-00 00:00:00'
+    ) {
         return 'Not available';
     }
 
     try {
-        $date = new DateTime($value);
-        return $date->format('d M Y, h:i A');
-    } catch (\Exception $exception) {
+        $date =
+            new DateTime($value);
+
+        return $date->format(
+            'd M Y, h:i A'
+        );
+    } catch (\Throwable $e) {
         return $value;
     }
 }
 
-function sendTicketMail(string $toEmail, array $booking, string $ticketUrl, &$deliveryNote)
-{
-    if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
-        $deliveryNote = 'Customer email is not available for ticket sending.';
+/*
+|--------------------------------------------------------------------------
+| HTML ESCAPE
+|--------------------------------------------------------------------------
+*/
+
+function theaterMailEscape(
+    string $value
+): string {
+    return htmlspecialchars(
+        $value,
+        ENT_QUOTES |
+        ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| SEND TICKET MAIL
+|--------------------------------------------------------------------------
+*/
+
+function sendTicketMail(
+    string $toEmail,
+    array $booking,
+    string $ticketUrl,
+    &$deliveryNote
+): bool {
+
+    $toEmail =
+        trim($toEmail);
+
+    if (
+        !theaterValidEmail($toEmail)
+    ) {
+        $deliveryNote =
+            'Customer email is not available for ticket sending.';
+
         return false;
     }
 
-    if (!theaterMailIsConfigured($deliveryNote)) {
+    if (
+        !theaterMailIsConfigured(
+            $deliveryNote
+        )
+    ) {
         return false;
     }
 
-    $bookingId = intval($booking['id'] ?? 0);
-    if ($bookingId > 0 && wasTicketMailSent($bookingId, $toEmail)) {
-        $deliveryNote = 'Ticket email already sent in this session.';
+    $bookingId =
+        intval(
+            $booking['id'] ?? 0
+        );
+
+    /*
+     * Prevent duplicate ticket emails
+     * within the current session.
+     */
+    if (
+        $bookingId > 0 &&
+        wasTicketMailSent(
+            $bookingId,
+            $toEmail
+        )
+    ) {
+        $deliveryNote =
+            'Ticket email already sent in this session.';
+
         return true;
     }
 
-    $movie = trim((string) ($booking['movie'] ?? 'Featured Show'));
-    $guestName = trim((string) ($booking['name'] ?? 'Guest'));
-    $phone = trim((string) ($booking['phone'] ?? 'Not Available'));
-    $theater = trim((string) ($booking['theater'] ?? 'T1 - 4K'));
-    $seats = trim((string) ($booking['seats'] ?? 'Not Assigned'));
-    $amount = number_format((float) ($booking['totalAmount'] ?? 0), 2);
-    $showTime = formatTicketEmailDate((string) ($booking['time'] ?? ''));
-    $bookingDate = formatTicketEmailDate((string) ($booking['created_at'] ?? date('Y-m-d H:i:s')));
-    $bookingCode = 'FT' . str_pad((string) $bookingId, 6, '0', STR_PAD_LEFT);
+    /*
+     * Booking information.
+     */
+    $movie =
+        trim(
+            (string) (
+                $booking['movie']
+                ?? 'Featured Show'
+            )
+        );
 
-    $subject = 'Your FALCONS Theater Ticket - ' . $movie;
+    $guestName =
+        trim(
+            (string) (
+                $booking['name']
+                ?? 'Guest'
+            )
+        );
+
+    $phone =
+        trim(
+            (string) (
+                $booking['phone']
+                ?? 'Not Available'
+            )
+        );
+
+    $theater =
+        trim(
+            (string) (
+                $booking['theater']
+                ?? 'T1 - 4K'
+            )
+        );
+
+    $seats =
+        trim(
+            (string) (
+                $booking['seats']
+                ?? 'Not Assigned'
+            )
+        );
+
+    $amount =
+        number_format(
+            (float) (
+                $booking['totalAmount']
+                ?? 0
+            ),
+            2
+        );
+
+    $showTime =
+        formatTicketEmailDate(
+            (string) (
+                $booking['time']
+                ?? ''
+            )
+        );
+
+    $bookingDate =
+        formatTicketEmailDate(
+            (string) (
+                $booking['created_at']
+                ?? date(
+                    'Y-m-d H:i:s'
+                )
+            )
+        );
+
+    $bookingCode =
+        'FT' .
+        str_pad(
+            (string) $bookingId,
+            6,
+            '0',
+            STR_PAD_LEFT
+        );
+
+    /*
+     * Escape all dynamic HTML values.
+     */
+    $movieHtml =
+        theaterMailEscape($movie);
+
+    $guestHtml =
+        theaterMailEscape($guestName);
+
+    $phoneHtml =
+        theaterMailEscape($phone);
+
+    $theaterHtml =
+        theaterMailEscape($theater);
+
+    $seatsHtml =
+        theaterMailEscape($seats);
+
+    $amountHtml =
+        theaterMailEscape($amount);
+
+    $showTimeHtml =
+        theaterMailEscape($showTime);
+
+    $bookingDateHtml =
+        theaterMailEscape($bookingDate);
+
+    $bookingCodeHtml =
+        theaterMailEscape($bookingCode);
+
+    $ticketUrlHtml =
+        theaterMailEscape($ticketUrl);
+
+    $subject =
+        'Your FALCONS Theater Ticket - ' .
+        $movie;
+
+    /*
+     * Ticket HTML.
+     */
     $html = '
-        <div style="margin:0;padding:24px;background:#10181d;font-family:Arial,sans-serif;color:#211d18;">
-            <div style="max-width:640px;margin:0 auto;background:linear-gradient(180deg,#f8eedc 0%,#f4e7d1 100%);border-radius:28px;padding:28px;border:1px solid #f2e7d1;">
-                <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-                    <div>
-                        <div style="font-size:30px;font-weight:700;letter-spacing:2px;line-height:1.1;">FALCONS<br>THEATER</div>
-                        <div style="margin-top:10px;color:#6d6354;">Official movie entry pass</div>
-                    </div>
-                    <div style="padding:12px 18px;border-radius:999px;background:#f1dfae;color:#bb8a16;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Confirmed</div>
-                </div>
+<!DOCTYPE html>
+<html lang="en">
 
-                <div style="margin-top:26px;font-size:22px;font-weight:700;">' . htmlspecialchars($movie, ENT_QUOTES, 'UTF-8') . '</div>
-                <div style="display:inline-block;margin-top:14px;padding:10px 16px;border-radius:999px;background:#f1dfae;color:#bb8a16;font-weight:700;letter-spacing:2px;">' . htmlspecialchars($bookingCode, ENT_QUOTES, 'UTF-8') . '</div>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1.0">
+<title>FALCONS Theater Ticket</title>
+</head>
 
-                <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;margin-top:22px;border-collapse:separate;border-spacing:0 12px;">
-                    <tr>
-                        <td style="width:50%;padding-right:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Guest Name</div><div style="font-size:20px;font-weight:700;">' . htmlspecialchars($guestName, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                        <td style="width:50%;padding-left:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Contact</div><div style="font-size:20px;font-weight:700;">' . htmlspecialchars($phone, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                    </tr>
-                    <tr>
-                        <td style="width:50%;padding-right:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Show Time</div><div style="font-size:20px;font-weight:700;">' . htmlspecialchars($showTime, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                        <td style="width:50%;padding-left:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Theater</div><div style="font-size:20px;font-weight:700;">' . htmlspecialchars($theater, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                    </tr>
-                    <tr>
-                        <td style="width:50%;padding-right:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Seats</div><div style="font-size:20px;font-weight:700;">' . htmlspecialchars($seats, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                        <td style="width:50%;padding-left:8px;vertical-align:top;"><div style="background:rgba(255,255,255,0.74);border:1px solid #eadcc6;border-radius:20px;padding:18px;"><div style="font-size:12px;letter-spacing:1px;color:#7f7464;text-transform:uppercase;margin-bottom:10px;">Total Paid</div><div style="font-size:20px;font-weight:700;">Rs ' . htmlspecialchars($amount, ENT_QUOTES, 'UTF-8') . '</div></div></td>
-                    </tr>
-                </table>
+<body style="
+    margin:0;
+    padding:0;
+    background:#10181d;
+    font-family:Arial,Helvetica,sans-serif;
+">
 
-                <div style="margin-top:18px;color:#6d6354;line-height:1.6;">Show this email or open the ticket link below at the theatre entry.</div>
-                <div style="margin-top:22px;">
-                    <a href="' . htmlspecialchars($ticketUrl, ENT_QUOTES, 'UTF-8') . '" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#e9c96f;color:#553c03;text-decoration:none;font-weight:700;">Open Ticket</a>
-                </div>
-            </div>
-        </div>';
+<div style="
+    padding:25px 12px;
+    background:#10181d;
+">
 
-    $plainText = "FALCONS Theater Ticket\n"
-        . "Movie: {$movie}\n"
-        . "Booking Code: {$bookingCode}\n"
-        . "Guest Name: {$guestName}\n"
-        . "Contact: {$phone}\n"
-        . "Show Time: {$showTime}\n"
-        . "Theater: {$theater}\n"
-        . "Booking Date: {$bookingDate}\n"
-        . "Seats: {$seats}\n"
-        . "Total Paid: Rs {$amount}\n"
-        . "Open Ticket: {$ticketUrl}";
+<div style="
+    max-width:640px;
+    margin:0 auto;
+    background:#f8eedc;
+    border-radius:26px;
+    padding:28px;
+    color:#211d18;
+">
 
+<div style="
+    font-size:29px;
+    font-weight:700;
+    letter-spacing:2px;
+    line-height:1.1;
+">
+FALCONS<br>
+THEATER
+</div>
+
+<div style="
+    margin-top:10px;
+    color:#6d6354;
+">
+Official movie entry pass
+</div>
+
+<div style="
+    margin-top:24px;
+    display:inline-block;
+    padding:10px 17px;
+    border-radius:20px;
+    background:#f1dfae;
+    color:#8b6816;
+    font-weight:700;
+    letter-spacing:1px;
+">
+PAYMENT CONFIRMED
+</div>
+
+<div style="
+    margin-top:24px;
+    font-size:23px;
+    font-weight:700;
+">
+' . $movieHtml . '
+</div>
+
+<div style="
+    display:inline-block;
+    margin-top:12px;
+    padding:9px 15px;
+    border-radius:20px;
+    background:#f1dfae;
+    color:#8b6816;
+    font-weight:700;
+    letter-spacing:2px;
+">
+' . $bookingCodeHtml . '
+</div>
+
+<table
+    width="100%"
+    cellspacing="0"
+    cellpadding="6"
+    style="
+        margin-top:20px;
+        border-collapse:collapse;
+    "
+>
+
+<tr>
+
+<td width="50%" valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Guest Name
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $guestHtml . '
+</div>
+
+</div>
+
+</td>
+
+<td width="50%" valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Contact
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $phoneHtml . '
+</div>
+
+</div>
+
+</td>
+
+</tr>
+
+<tr>
+
+<td valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Show Time
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $showTimeHtml . '
+</div>
+
+</div>
+
+</td>
+
+<td valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Theater
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $theaterHtml . '
+</div>
+
+</div>
+
+</td>
+
+</tr>
+
+<tr>
+
+<td valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Seats
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $seatsHtml . '
+</div>
+
+</div>
+
+</td>
+
+<td valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Total Paid
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+Rs ' . $amountHtml . '
+</div>
+
+</div>
+
+</td>
+
+</tr>
+
+<tr>
+
+<td colspan="2" valign="top">
+
+<div style="
+    background:#fffaf2;
+    border:1px solid #eadcc6;
+    border-radius:18px;
+    padding:16px;
+">
+
+<div style="
+    font-size:11px;
+    color:#7f7464;
+    text-transform:uppercase;
+    letter-spacing:1px;
+">
+Booking Date
+</div>
+
+<div style="
+    margin-top:8px;
+    font-size:18px;
+    font-weight:700;
+">
+' . $bookingDateHtml . '
+</div>
+
+</div>
+
+</td>
+
+</tr>
+
+</table>
+
+<div style="
+    margin-top:20px;
+    color:#6d6354;
+    line-height:1.6;
+">
+Please show this email or open your digital
+ticket at the theater entrance.
+</div>
+
+<div style="margin-top:22px;">
+
+<a
+    href="' . $ticketUrlHtml . '"
+    style="
+        display:inline-block;
+        padding:13px 22px;
+        border-radius:22px;
+        background:#e9c96f;
+        color:#553c03;
+        text-decoration:none;
+        font-weight:700;
+    "
+>
+Open Digital Ticket
+</a>
+
+</div>
+
+<div style="
+    margin-top:28px;
+    padding-top:18px;
+    border-top:1px solid #dfd0b8;
+    color:#8a7c69;
+    font-size:12px;
+">
+FALCONS THEATER<br>
+Please keep this email for your records.
+</div>
+
+</div>
+
+</div>
+
+</body>
+</html>';
+
+    /*
+     * Plain-text fallback.
+     */
+    $plainText =
+        "FALCONS THEATER\n\n" .
+        "PAYMENT CONFIRMED\n\n" .
+        "Movie: {$movie}\n" .
+        "Booking Code: {$bookingCode}\n" .
+        "Guest Name: {$guestName}\n" .
+        "Contact: {$phone}\n" .
+        "Show Time: {$showTime}\n" .
+        "Theater: {$theater}\n" .
+        "Booking Date: {$bookingDate}\n" .
+        "Seats: {$seats}\n" .
+        "Total Paid: Rs {$amount}\n\n" .
+        "Open Digital Ticket:\n" .
+        $ticketUrl;
+
+    /*
+     * Send email.
+     */
     try {
-        $mail = createTheaterMailer();
-        $mail->addAddress($toEmail);
+
+        $mail =
+            createTheaterMailer();
+
+        $mail->addAddress(
+            $toEmail
+        );
+
         $mail->isHTML(true);
-        $mail->Subject = $subject;
-        $mail->Body = $html;
-        $mail->AltBody = $plainText;
+
+        $mail->Subject =
+            $subject;
+
+        $mail->Body =
+            $html;
+
+        $mail->AltBody =
+            $plainText;
+
         $mail->send();
 
+        /*
+         * Mark as sent only AFTER
+         * successful delivery.
+         */
         if ($bookingId > 0) {
-            markTicketMailSent($bookingId, $toEmail);
+            markTicketMailSent(
+                $bookingId,
+                $toEmail
+            );
         }
 
-        $deliveryNote = 'Ticket sent to customer email.';
+        $deliveryNote =
+            'Ticket sent to customer email.';
+
         return true;
+
     } catch (\Throwable $e) {
-        logTheaterMailFailure('ticket', $e->getMessage());
-        $deliveryNote = theaterMailFailureMessage($e->getMessage());
+
+        logTheaterMailFailure(
+            'ticket',
+            $e->getMessage()
+        );
+
+        $deliveryNote =
+            theaterMailFailureMessage(
+                $e->getMessage()
+            );
+
         return false;
     }
 }
 
-function sendOtpMail($toEmail, $otp, &$deliveryNote)
-{
-    if (!theaterMailIsConfigured($deliveryNote)) {
+/*
+|--------------------------------------------------------------------------
+| SEND OTP MAIL
+|--------------------------------------------------------------------------
+*/
+
+function sendOtpMail(
+    $toEmail,
+    $otp,
+    &$deliveryNote
+): bool {
+
+    $toEmail =
+        trim((string) $toEmail);
+
+    $otp =
+        trim((string) $otp);
+
+    /*
+     * Validate recipient.
+     */
+    if (
+        !theaterValidEmail($toEmail)
+    ) {
+        $deliveryNote =
+            'Please provide a valid email address.';
+
+        return false;
+    }
+
+    /*
+     * OTP must be numeric.
+     */
+    if (
+        $otp === '' ||
+        !preg_match(
+            '/^[0-9]{4,8}$/',
+            $otp
+        )
+    ) {
+        $deliveryNote =
+            'Invalid OTP format.';
+
+        return false;
+    }
+
+    /*
+     * Check mail configuration.
+     */
+    if (
+        !theaterMailIsConfigured(
+            $deliveryNote
+        )
+    ) {
         return false;
     }
 
     try {
-        $mail = createTheaterMailer();
-        $mail->addAddress($toEmail);
+
+        $mail =
+            createTheaterMailer();
+
+        $mail->addAddress(
+            $toEmail
+        );
+
         $mail->isHTML(false);
-        $mail->Subject = 'FALCONS Theater OTP';
-        $mail->Body = "Your OTP is: {$otp}\nThis code will expire in 10 minutes.";
+
+        $mail->Subject =
+            'FALCONS Theater OTP';
+
+        $mail->Body =
+            "FALCONS THEATER\n\n" .
+            "Your verification code is:\n\n" .
+            "{$otp}\n\n" .
+            "This code will expire in 10 minutes.\n\n" .
+            "If you did not request this code, " .
+            "please ignore this email.";
 
         $mail->send();
-        $deliveryNote = "OTP sent to your email.";
+
+        $deliveryNote =
+            'OTP sent to your email.';
+
         return true;
+
     } catch (\Throwable $e) {
-        logTheaterMailFailure('otp', $e->getMessage());
-        $deliveryNote = theaterMailFailureMessage($e->getMessage());
+
+        logTheaterMailFailure(
+            'otp',
+            $e->getMessage()
+        );
+
+        $deliveryNote =
+            theaterMailFailureMessage(
+                $e->getMessage()
+            );
+
         return false;
     }
 }
