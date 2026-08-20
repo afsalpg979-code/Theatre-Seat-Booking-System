@@ -331,7 +331,7 @@ Logger::security('Failed login attempt', ['ip' => '192.168.1.1']);
 ## Support & Contact
 
 For issues or questions:
-- Email: admin@falconstheater.com
+- Email: afsalpg979@gmail.com
 - Visit: Contact page on website
 
 ---
