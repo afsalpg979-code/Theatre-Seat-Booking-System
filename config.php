@@ -1,31 +1,28 @@
 <?php
-$host = "127.0.0.1";
-$user = "root";
-$pass = "";
-$dbname = "cinema_db";
+/**
+ * FALCONS Theater - application configuration and database connection.
+ * Keep database credentials in this file for the local XAMPP installation.
+ */
 
-$conn = new mysqli($host, $user, $pass, $dbname);
+$host = '127.0.0.1';
+$user = 'root';
+$pass = '';
+$dbname = 'cinema_db';
 
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+try {
+    $conn = new mysqli($host, $user, $pass, $dbname);
+    $conn->set_charset('utf8mb4');
+} catch (mysqli_sql_exception $e) {
+    http_response_code(500);
+    error_log('FALCONS Theater database connection failed: ' . $e->getMessage());
+    exit('Database connection failed. Please check the database configuration.');
 }
 
 date_default_timezone_set('Asia/Kolkata');
 
-// Run cleanup only if the upcoming_movies table exists.
-$table_check = mysqli_query($conn, "SHOW TABLES LIKE 'upcoming_movies'");
-if ($table_check && mysqli_num_rows($table_check) > 0) {
-    $price_column_check = mysqli_query($conn, "SHOW COLUMNS FROM upcoming_movies LIKE 'price'");
-    if ($price_column_check && mysqli_num_rows($price_column_check) > 0) {
-        mysqli_query($conn, "ALTER TABLE upcoming_movies MODIFY COLUMN price DECIMAL(10,2)");
-    }
-
-    $trailer_column_check = mysqli_query($conn, "SHOW COLUMNS FROM upcoming_movies LIKE 'trailer'");
-    if ($trailer_column_check && mysqli_num_rows($trailer_column_check) > 0) {
-        mysqli_query($conn, "ALTER TABLE upcoming_movies MODIFY COLUMN trailer VARCHAR(255)");
-    }
-
-    $cleanup_sql = "DELETE FROM upcoming_movies WHERE release_date < CURDATE()";
-    mysqli_query($conn, $cleanup_sql);
-}
+// IMPORTANT: Do not delete released movies here. The home page intentionally
+// displays movies whose release_date is today or earlier.
+// Database schema changes belong in setup_database.php / cinema_db.sql.
 ?>
