@@ -1,8 +1,6 @@
 <?php
 /** Central CSRF protection for state-changing requests. */
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-}
+require_once __DIR__ . '/bootstrap.php';
 
 function csrf_token(): string
 {
@@ -62,8 +60,6 @@ function csrf_validate_request(): void
     $provided = (string)($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
     $cookie = (string)($_COOKIE['_csrf'] ?? '');
 
-    // Prefer an explicit form/header token. The Strict cookie provides a
-    // compatibility fallback for existing forms that have not yet been edited.
     $tokenValid = $stored !== '' && (
         ($provided !== '' && hash_equals($stored, $provided)) ||
         ($cookie !== '' && hash_equals($stored, $cookie))
