@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime / logs
+logs/
+*.log
+
+# Local development
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# PHP runtime/cache
+.phpunit.result.cache
+vendor/bin/
+
+# Local rate-limit state
+*rate_limits.json
