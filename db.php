@@ -1,46 +1,25 @@
-
-/**/
- * FALCONS Theater - Database Connection
- * Centralized database connection with security enhancements
+<?php
+/**
+ * FALCONS Theater - central database connection.
+ * Schema changes are handled by cinema_db.sql / setup_database.php,
+ * not on every page request.
  */
 
-$host = "localhost";
-$user = "root";
-$password = "";
-$database = "cinema_db";
+$host = '127.0.0.1';
+$user = 'root';
+$password = '';
+$database = 'cinema_db';
 
-// Establishing a connection to the database
-$conn = mysqli_connect($host, $user, $password, $database);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-// Check if the connection is successful
-if (!$conn) {
-    die("Connection failed: " . mysqli_connect_error());
+try {
+    $conn = new mysqli($host, $user, $password, $database);
+    $conn->set_charset('utf8mb4');
+} catch (mysqli_sql_exception $e) {
+    error_log('FALCONS Theater DB connection failed: ' . $e->getMessage());
+    http_response_code(500);
+    exit('Database connection failed. Please check XAMPP/MySQL and cinema_db.');
 }
 
-// Set the character set to UTF-8 for handling special characters
-mysqli_set_charset($conn, "utf8mb4");
-
-function ensureColumnExists(mysqli $conn, string $table, string $column, string $definition)
-{
-    $schemaResult = mysqli_query($conn, "SELECT DATABASE()");
-    $schemaRow = $schemaResult ? mysqli_fetch_row($schemaResult) : null;
-    $schema = mysqli_real_escape_string($conn, (string) ($schemaRow[0] ?? $GLOBALS['database']));
-    $tableSafe = mysqli_real_escape_string($conn, $table);
-    $columnSafe = mysqli_real_escape_string($conn, $column);
-    $columnCheck = mysqli_query(
-        $conn,
-        "SELECT COUNT(*) AS column_count
-         FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = '$schema'
-           AND TABLE_NAME = '$tableSafe'
-           AND COLUMN_NAME = '$columnSafe'"
-    );
-    $columnRow = $columnCheck ? mysqli_fetch_assoc($columnCheck) : ['column_count' => 0];
-
-    if ((int) ($columnRow['column_count'] ?? 0) === 0) {
-        @mysqli_query($conn, "ALTER TABLE `$tableSafe` ADD `$columnSafe` $definition");
-    }
-}
-
-ensureColumnExists($conn, 'bookings', 'theater', "varchar(20) NOT NULL DEFAULT 'T1 - 4K' AFTER movie");
-ensureColumnExists($conn, 'payments', 't
+date_default_timezone_set('Asia/Kolkata');
+?>
