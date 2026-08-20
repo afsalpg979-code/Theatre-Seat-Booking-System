@@ -1,0 +1,8 @@
+# Security bootstrap: run CSRF validation before every PHP request.
+# XAMPP/Apache with mod_php supports PHP_VALUE directives here.
+<IfModule mod_php.c>
+    php_value auto_prepend_file "csrf.php"
+</IfModule>
+
+# Prevent directory listing.
+Options -Indexes
