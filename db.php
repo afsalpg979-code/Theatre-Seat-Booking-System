@@ -1,30 +1,30 @@
-
-/**/
+<?php
+/**
  * FALCONS Theater - Database Connection
- * Centralized database connection with security enhancements
+ * Production credentials must be supplied through environment variables.
  */
 
-$host = "localhost";
-$user = "root";
-$password = "";
-$database = "cinema_db";
+$host = getenv('DB_HOST') ?: '127.0.0.1';
+$user = getenv('DB_USER') ?: 'root';
+$password = getenv('DB_PASSWORD') ?: '';
+$database = getenv('DB_NAME') ?: 'cinema_db';
+$port = (int) (getenv('DB_PORT') ?: 3306);
 
-// Establishing a connection to the database
-$conn = mysqli_connect($host, $user, $password, $database);
+$conn = mysqli_connect($host, $user, $password, $database, $port);
 
-// Check if the connection is successful
 if (!$conn) {
-    die("Connection failed: " . mysqli_connect_error());
+    error_log('Database connection failed.');
+    http_response_code(503);
+    exit('Service temporarily unavailable. Please try again later.');
 }
 
-// Set the character set to UTF-8 for handling special characters
-mysqli_set_charset($conn, "utf8mb4");
+mysqli_set_charset($conn, 'utf8mb4');
 
 function ensureColumnExists(mysqli $conn, string $table, string $column, string $definition)
 {
     $schemaResult = mysqli_query($conn, "SELECT DATABASE()");
     $schemaRow = $schemaResult ? mysqli_fetch_row($schemaResult) : null;
-    $schema = mysqli_real_escape_string($conn, (string) ($schemaRow[0] ?? $GLOBALS['database']));
+    $schema = mysqli_real_escape_string($conn, (string) ($schemaRow[0] ?? ''));
     $tableSafe = mysqli_real_escape_string($conn, $table);
     $columnSafe = mysqli_real_escape_string($conn, $column);
     $columnCheck = mysqli_query(
@@ -43,4 +43,4 @@ function ensureColumnExists(mysqli $conn, string $table, string $column, string 
 }
 
 ensureColumnExists($conn, 'bookings', 'theater', "varchar(20) NOT NULL DEFAULT 'T1 - 4K' AFTER movie");
-ensureColumnExists($conn, 'payments', 't
+ensureColumnExists($conn, 'payments', 'transaction_id', "varchar(255) NULL AFTER amount");
