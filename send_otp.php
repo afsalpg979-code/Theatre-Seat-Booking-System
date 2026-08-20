@@ -1,6 +1,6 @@
 <?php
-session_start();
-require_once 'vendor/autoload.php';
+require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/vendor/autoload.php';
 require_once __DIR__ . '/otp_rate_limit.php';
 
 use Twilio\Rest\Client;
@@ -20,7 +20,6 @@ if ($phone === '' || strlen($phone) < 10 || strlen($phone) > 15) {
     exit('Invalid request.');
 }
 
-// Prevent OTP flooding: max 3 sends per phone/IP in 15 minutes and 5 per IP in 15 minutes.
 [$phoneAllowed, $phoneRetry] = otp_limit_check('otp_send_phone', $phone, 3, 900);
 [$ipAllowed, $ipRetry] = otp_limit_check('otp_send_ip', 'ip', 5, 900);
 if (!$phoneAllowed || !$ipAllowed) {
