@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/otp_rate_limit.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -77,6 +77,5 @@ $conn->close();
 otp_limit_reset('otp_verify', $phoneHash);
 unset($_SESSION['otp'], $_SESSION['otp_issued_at'], $_SESSION['otp_expires_at'], $_SESSION['otp_attempts'], $_SESSION['otp_phone'], $_SESSION['register_data']);
 session_regenerate_id(true);
-
 ?>
 <h3>Registration successful!</h3>
