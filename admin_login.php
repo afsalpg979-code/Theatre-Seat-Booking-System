@@ -7,7 +7,7 @@ $login_error = '';
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+    $password = (string) ($_POST['password'] ?? '');
 
     if ($username === '' || $password === '') {
         $login_error = "Invalid login credentials.";
@@ -26,25 +26,59 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $stmt->close();
 
             $passwordMatches = false;
+            $legacyPlaintext = false;
+
             if ($admin) {
                 $storedPassword = (string) $admin['password'];
-                $info = password_get_info($storedPassword);
-                if (($info['algo'] ?? 0) !== 0) {
+                $passwordInfo = password_get_info($storedPassword);
+                $isPasswordHash = ($passwordInfo['algo'] ?? 0) !== 0;
+
+                if ($isPasswordHash) {
                     $passwordMatches = password_verify($password, $storedPassword);
+                } else {
+                    // One-time compatibility migration for legacy plaintext records.
+                    // A successful legacy login immediately replaces the plaintext value
+                    // with a strong password_hash() value. Plaintext is never accepted again.
+                    $passwordMatches = hash_equals($storedPassword, $password);
+                    $legacyPlaintext = $passwordMatches;
                 }
             }
 
             if ($admin && $passwordMatches) {
-                admin_rate_limit_reset($username);
-                session_regenerate_id(true);
-                $_SESSION['admin_logged_in'] = true;
-                $_SESSION['admin_username'] = $admin['username'];
-                header("Location: AdminOnly.php");
-                exit();
+                if ($legacyPlaintext) {
+                    $newHash = password_hash($password, PASSWORD_DEFAULT);
+                    $update = $conn->prepare("UPDATE admin SET password = ? WHERE id = ? LIMIT 1");
+                    if (!$update) {
+                        admin_rate_limit_failure($username);
+                        $login_error = "Unable to complete login securely. Please try again later.";
+                    } else {
+                        $update->bind_param("si", $newHash, $admin['id']);
+                        $updated = $update->execute();
+                        $update->close();
+
+                        if (!$updated) {
+                            admin_rate_limit_failure($username);
+                            $login_error = "Unable to complete login securely. Please try again later.";
+                        } else {
+                            $passwordMatches = true;
+                        }
+                    }
+                }
+
+                if ($passwordMatches && $login_error === '') {
+                    admin_rate_limit_reset($username);
+                    session_regenerate_id(true);
+                    $_SESSION['admin_logged_in'] = true;
+                    $_SESSION['admin_username'] = $admin['username'];
+                    header("Location: AdminOnly.php");
+                    exit();
+                }
             }
 
-            admin_rate_limit_failure($username);
-            $login_error = "Invalid login credentials.";
+            if ($login_error === '') {
+                admin_rate_limit_failure($username);
+                $login_error = "Invalid login credentials.";
+            }
         }
     }
 }
