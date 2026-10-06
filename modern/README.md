@@ -1,24 +1,70 @@
-# FALCONS Smart Theatre ERP — Modern Stack
+# FALCONS Smart Theatre ERP — Node.js Migration
 
-Modern migration foundation for the existing Theatre Seat Booking System.
+The modern application is the target replacement for the legacy PHP theatre system.
 
 ## Stack
-- Next.js + React + TypeScript
-- NestJS + Node.js + TypeScript
-- Prisma ORM
-- PostgreSQL
-- Redis/BullMQ and Python AI will be added in later phases
+- Web: Next.js + React + TypeScript
+- API: Node.js + NestJS + TypeScript
+- Database: PostgreSQL + Prisma
+- Cache/jobs: Redis (foundation included)
+- AI: Python/FastAPI in a later phase
+- Mobile: React Native/Expo in a later phase
 
-## Apps
-- `apps/web` — customer/admin web application
-- `apps/api` — ERP REST API
-- `packages/db` — shared Prisma database schema
+## Current Node.js modules
+- Movies
+- Theatres
+- Screens
+- Seats
+- Shows
+- Bookings
 
-## Start
-```bash
-npm install
-npm run dev:web
-npm run dev:api
-```
+Booking flow: Movie -> Theatre -> Screen -> Seats -> Show -> Booking
 
-The legacy PHP application remains in the repository while the modern application is migrated module-by-module.
+Bookings use a database transaction and reject seats already booked for the same show.
+
+## Run locally
+
+    cd modern
+    npm install
+
+Create .env from .env.example, then start PostgreSQL/Redis:
+
+    docker compose up -d
+
+Generate Prisma Client:
+
+    npm run db:generate
+
+Create/update the PostgreSQL schema:
+
+    npm --workspace packages/db run migrate -- --name init
+
+Start the API:
+
+    npm run dev:api
+
+Start the web app in another terminal:
+
+    npm run dev:web
+
+API: http://localhost:4000/api/health
+Web: http://localhost:3000
+
+## API endpoints
+
+- GET /api/health
+- GET /api/movies
+- POST /api/movies
+- GET /api/movies/:id
+- GET /api/theatres
+- POST /api/theatres
+- POST /api/theatres/:id/screens
+- POST /api/theatres/:id/screens/:screenId/seats
+- GET /api/shows
+- POST /api/shows
+- GET /api/bookings
+- POST /api/bookings
+
+## Migration policy
+
+Legacy PHP is intentionally retained as a fallback/reference while Node.js modules are migrated and verified. PHP will be removed only after the replacement modules are tested end-to-end.
