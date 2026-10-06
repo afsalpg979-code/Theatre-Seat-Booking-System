@@ -1,0 +1,2 @@
+import { Controller,Get,Req,UseGuards } from "@nestjs/common"; import { AuthGuard } from "./auth.guard";
+@Controller("me") export class MeController { @Get() @UseGuards(AuthGuard) me(@Req() req:any){return req.user;} }
