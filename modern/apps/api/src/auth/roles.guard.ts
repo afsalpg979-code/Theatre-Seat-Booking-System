@@ -1,0 +1,3 @@
+import { CanActivate,ExecutionContext,ForbiddenException,Injectable } from "@nestjs/common";
+@Injectable()
+export class RolesGuard implements CanActivate { canActivate(c:ExecutionContext){const required=Reflect.getMetadata("roles",c.getHandler()) as string[]|undefined;if(!required?.length)return true;const roles=c.switchToHttp().getRequest().user?.roles??[];if(!required.some(r=>roles.includes(r)))throw new ForbiddenException("Insufficient role");return true;} }
