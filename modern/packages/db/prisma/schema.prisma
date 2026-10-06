@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Theatre {
+  id        String   @id @default(cuid())
+  name      String
+  location  String?
+  createdAt DateTime @default(now())
+  screens   Screen[]
+  shows     Show[]
+}
+
+model Screen {
+  id        String   @id @default(cuid())
+  theatreId String
+  name      String
+  capacity  Int
+  theatre   Theatre  @relation(fields: [theatreId], references: [id], onDelete: Cascade)
+  seats     Seat[]
+  shows     Show[]
+}
+
+model Seat {
+  id        String @id @default(cuid())
+  screenId  String
+  row       String
+  number    Int
+  category  String @default("STANDARD")
+  screen    Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  bookings  BookingSeat[]
+  @@unique([screenId, row, number])
+}
+
+model Movie {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  durationMin Int
+  language    String?
+  releaseDate DateTime?
+  shows       Show[]
+  createdAt   DateTime @default(now())
+}
+
+model Show {
+  id        String   @id @default(cuid())
+  theatreId String
+  screenId  String
+  movieId   String
+  startsAt  DateTime
+  basePrice Decimal @db.Decimal(10, 2)
+  theatre   Theatre  @relation(fields: [theatreId], references: [id])
+  screen    Screen   @relation(fields: [screenId], references: [id])
+  movie     Movie    @relation(fields: [movieId], references: [id])
+  bookings  Booking[]
+  @@index([screenId, startsAt])
+}
+
+model Booking {
+  id        String        @id @default(cuid())
+  showId    String
+  customerName String
+  customerEmail String?
+  status    BookingStatus @default(PENDING)
+  total     Decimal       @db.Decimal(10, 2)
+  createdAt DateTime      @default(now())
+  show      Show          @relation(fields: [showId], references: [id])
+  seats     BookingSeat[]
+  @@index([showId, status])
+}
+
+model BookingSeat {
+  id        String  @id @default(cuid())
+  bookingId String
+  seatId    String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seat      Seat    @relation(fields: [seatId], references: [id])
+  @@unique([bookingId, seatId])
+}
