@@ -17,7 +17,7 @@ export default function Home() {
           <p>Modern booking, operations, finance and AI intelligence — built with React, TypeScript and Node.js.</p>
           <div className="actions">
             <a href="#modules" className="primary">Explore ERP</a>
-            <a href="http://localhost:4000/health" className="secondary">API Health</a>
+            <a href="http://localhost:4000/api/health" className="secondary">API Health</a>
           </div>
         </div>
         <div className="status-card">
