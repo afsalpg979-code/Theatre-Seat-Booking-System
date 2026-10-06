@@ -406,3 +406,8 @@ model AuditLog {
   createdAt DateTime @default(now())
   @@index([module,createdAt])
 }
+
+enum UserStatus { ACTIVE INACTIVE SUSPENDED }
+enum PaymentStatus { CREATED PENDING PAID FAILED REFUNDED }
+enum PaymentMethod { CASH CARD UPI RAZORPAY }
+enum TicketStatus { VALID USED CANCELLED EXPIRED }
