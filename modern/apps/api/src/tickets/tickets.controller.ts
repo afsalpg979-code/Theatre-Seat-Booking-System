@@ -1,0 +1,1 @@
+import {Body,Controller,Post} from "@nestjs/common"; import {TicketsService} from "./tickets.service"; @Controller("tickets") export class TicketsController {constructor(private readonly t:TicketsService){} @Post("scan") scan(@Body()b:{qrToken:string}){return this.t.scan(b.qrToken)}}
