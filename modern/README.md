@@ -50,6 +50,29 @@ Start the web app in another terminal:
 API: http://localhost:4000/api/health
 Web: http://localhost:3000
 
+## ERP phases implemented
+
+### Phase 4 — POS, Inventory & Procurement
+- POS products and sales
+- Stock deduction on POS sale
+- Inventory adjustments and transaction ledger
+- Low-stock endpoint
+- Suppliers and purchase orders
+- Purchase receiving updates stock automatically
+
+### Phase 5 — HR & Assets
+- Departments, employees and designations
+- Attendance and shifts
+- Theatre assets
+- Maintenance requests and completion tracking
+
+### Phase 6 — Finance, Admin, Reports & Razorpay
+- Finance income/expense/refund ledger
+- Management dashboard aggregates
+- Sales and inventory reports
+- Admin overview and audit-log feed
+- Razorpay order creation and payment-signature verification
+
 ## API endpoints
 
 - GET /api/health
@@ -68,3 +91,32 @@ Web: http://localhost:3000
 ## Migration policy
 
 Legacy PHP is intentionally retained as a fallback/reference while Node.js modules are migrated and verified. PHP will be removed only after the replacement modules are tested end-to-end.
+
+
+## Phase 4–6 endpoints
+
+- GET/POST /api/pos/products
+- GET/POST /api/pos/sales
+- GET /api/inventory/low-stock
+- GET /api/inventory/transactions
+- POST /api/inventory/adjust
+- GET/POST /api/procurement/suppliers
+- GET/POST /api/procurement/orders
+- POST /api/procurement/orders/:id/receive
+- GET/POST /api/hr/departments
+- GET/POST /api/hr/employees
+- GET/POST /api/hr/attendance
+- POST /api/hr/shifts
+- GET/POST /api/assets
+- GET/POST /api/assets/maintenance
+- POST /api/assets/maintenance/complete
+- GET/POST /api/finance/entries
+- GET /api/finance/summary
+- GET /api/reports/dashboard
+- GET /api/reports/sales
+- GET /api/reports/inventory
+- GET /api/admin/overview
+- POST /api/payments/razorpay/order
+- POST /api/payments/razorpay/verify
+
+Razorpay uses RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET. Live transactions require production credentials, webhook handling and HTTPS before release.
