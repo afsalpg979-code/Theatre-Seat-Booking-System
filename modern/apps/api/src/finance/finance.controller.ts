@@ -1,0 +1,1 @@
+import{Body,Controller,Get,Post}from"@nestjs/common";import{FinanceService}from"./finance.service";@Controller("finance")export class FinanceController{constructor(private s:FinanceService){}@Get("entries")entries(){return this.s.entries()}@Post("entries")create(@Body()d:any){return this.s.create(d)}@Get("summary")summary(){return this.s.summary()}}

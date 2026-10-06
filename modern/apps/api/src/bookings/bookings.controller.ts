@@ -1,0 +1,3 @@
+import { Body,Controller,Get,Param,Post,Req,UseGuards } from "@nestjs/common";
+import { BookingsService } from "./bookings.service"; import { AuthGuard } from "../auth/auth.guard";
+@Controller("bookings") export class BookingsController {constructor(private readonly b:BookingsService){} @Get() findAll(){return this.b.findAll()} @Get(":id") findOne(@Param("id")id:string){return this.b.findOne(id)} @Post("lock") lock(@Body()body:any){return this.b.lockSeats(body)} @Post() @UseGuards(AuthGuard) create(@Body()body:any,@Req()req:any){return this.b.create({...body,userId:req.user.sub})}}

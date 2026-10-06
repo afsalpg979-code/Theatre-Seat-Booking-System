@@ -1,0 +1,1 @@
+import {Body,Controller,Get,Param,Post} from "@nestjs/common";import {InventoryService} from "./inventory.service";@Controller("inventory")export class InventoryController{constructor(private s:InventoryService){}@Get("low-stock")low(){return this.s.low()}@Get("transactions")transactions(){return this.s.transactions()}@Post("adjust")adjust(@Body()d:any){return this.s.adjust(d)}}
