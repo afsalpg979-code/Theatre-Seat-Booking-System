@@ -120,3 +120,22 @@ Legacy PHP is intentionally retained as a fallback/reference while Node.js modul
 - POST /api/payments/razorpay/verify
 
 Razorpay uses RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET. Live transactions require production credentials, webhook handling and HTTPS before release.
+
+
+## Phase 9 — AI ERP foundation
+
+The AI layer is intentionally built after the operational ERP modules. It currently provides:
+- ERP-wide insight endpoint
+- Inventory alert reasoning
+- Revenue and booking summaries
+- Natural-language ERP query endpoint
+- AI query history
+- Prediction storage model
+- Baseline inventory prediction service
+
+Endpoints:
+- GET /api/ai/insights
+- GET /api/ai/predictions
+- POST /api/ai/query
+
+The current query engine is a deterministic ERP-aware baseline. A production LLM provider, historical forecasting model and scheduled prediction jobs can be connected later without changing the ERP data model.
