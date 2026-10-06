@@ -10,4 +10,11 @@ export class TheatresController {
   @Post(":id/screens") addScreen(@Param("id") theatreId: string, @Body() body: { name: string; capacity: number }) {
     return this.theatres.addScreen(theatreId, body);
   }
+  @Post(":id/screens/:screenId/seats") addSeats(
+    @Param("id") theatreId: string,
+    @Param("screenId") screenId: string,
+    @Body() body: { rows: Array<{ row: string; count: number; category?: string }> }
+  ) {
+    return this.theatres.addSeats(theatreId, screenId, body.rows);
+  }
 }
