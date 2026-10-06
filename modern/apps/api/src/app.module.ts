@@ -8,6 +8,14 @@ import { AuthModule } from "./auth/auth.module";
 import { MeController } from "./auth/me.controller";
 import { PaymentsModule } from "./payments/payments.module";
 import { TicketsModule } from "./tickets/tickets.module";
+import { PosModule } from "./pos/pos.module";
+import { InventoryModule } from "./inventory/inventory.module";
+import { ProcurementModule } from "./procurement/procurement.module";
+import { HrModule } from "./hr/hr.module";
+import { AssetsModule } from "./assets/assets.module";
+import { FinanceModule } from "./finance/finance.module";
+import { ReportsModule } from "./reports/reports.module";
+import { AdminModule } from "./admin/admin.module";
 
 @Controller()
 class AppController {
@@ -18,13 +26,13 @@ class AppController {
       service: "FALCONS Smart Theatre ERP API",
       version: "0.5.0",
       stack: "NestJS + TypeScript + Prisma",
-      modules: ["auth", "rbac", "movies", "theatres", "screens", "seats", "shows", "bookings", "seat-locking", "payments", "tickets"]
+      modules: ["auth", "rbac", "movies", "theatres", "screens", "seats", "shows", "bookings", "seat-locking", "payments", "tickets", "pos", "inventory", "procurement", "hr", "assets", "finance", "reports", "admin"]
     };
   }
 }
 
 @Module({
-  imports: [DatabaseModule, MoviesModule, TheatresModule, ShowsModule, BookingsModule, AuthModule, PaymentsModule, TicketsModule],
+  imports: [DatabaseModule, MoviesModule, TheatresModule, ShowsModule, BookingsModule, AuthModule, PaymentsModule, TicketsModule, PosModule, InventoryModule, ProcurementModule, HrModule, AssetsModule, FinanceModule, ReportsModule, AdminModule],
   controllers: [AppController, MeController]
 })
 export class AppModule {}
