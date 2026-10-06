@@ -14,6 +14,52 @@ enum BookingStatus {
   COMPLETED
 }
 
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  passwordHash String
+  status UserStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  roles UserRole[]
+  bookings Booking[]
+  refreshTokens RefreshToken[]
+}
+model Role {
+  id String @id @default(cuid())
+  name String @unique
+  permissions RolePermission[]
+  users UserRole[]
+}
+model Permission {
+  id String @id @default(cuid())
+  name String @unique
+  roles RolePermission[]
+}
+model UserRole {
+  userId String
+  roleId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@id([userId, roleId])
+}
+model RolePermission {
+  roleId String
+  permissionId String
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@id([roleId, permissionId])
+}
+model RefreshToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  expiresAt DateTime
+  revokedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
 model Theatre {
   id        String   @id @default(cuid())
   name      String
@@ -40,7 +86,8 @@ model Seat {
   number    Int
   category  String @default("STANDARD")
   screen    Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
-  bookings  BookingSeat[]
+  bookings BookingSeat[]
+  seatLocks SeatLock[]
   @@unique([screenId, row, number])
 }
 
@@ -65,20 +112,38 @@ model Show {
   theatre   Theatre  @relation(fields: [theatreId], references: [id])
   screen    Screen   @relation(fields: [screenId], references: [id])
   movie     Movie    @relation(fields: [movieId], references: [id])
-  bookings  Booking[]
+  bookings Booking[]
+  seatLocks SeatLock[]
   @@index([screenId, startsAt])
+}
+
+model SeatLock {
+  id String @id @default(cuid())
+  showId String
+  seatId String
+  token String @unique
+  expiresAt DateTime
+  show Show @relation(fields: [showId], references: [id], onDelete: Cascade)
+  seat Seat @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  @@unique([showId, seatId])
+  @@index([expiresAt])
 }
 
 model Booking {
   id        String        @id @default(cuid())
+  bookingCode String @unique
   showId    String
+  userId String?
   customerName String
   customerEmail String?
   status    BookingStatus @default(PENDING)
   total     Decimal       @db.Decimal(10, 2)
   createdAt DateTime      @default(now())
   show      Show          @relation(fields: [showId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
   seats     BookingSeat[]
+  payments Payment[]
+  ticket Ticket?
   @@index([showId, status])
 }
 
@@ -89,4 +154,27 @@ model BookingSeat {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   seat      Seat    @relation(fields: [seatId], references: [id])
   @@unique([bookingId, seatId])
+}
+
+model Payment {
+  id String @id @default(cuid())
+  bookingId String
+  method PaymentMethod
+  status PaymentStatus @default(CREATED)
+  amount Decimal @db.Decimal(10, 2)
+  providerRef String?
+  createdAt DateTime @default(now())
+  paidAt DateTime?
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId, status])
+}
+
+model Ticket {
+  id String @id @default(cuid())
+  bookingId String @unique
+  qrToken String @unique
+  status TicketStatus @default(VALID)
+  issuedAt DateTime @default(now())
+  usedAt DateTime?
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
