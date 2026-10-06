@@ -411,3 +411,35 @@ enum UserStatus { ACTIVE INACTIVE SUSPENDED }
 enum PaymentStatus { CREATED PENDING PAID FAILED REFUNDED }
 enum PaymentMethod { CASH CARD UPI RAZORPAY }
 enum TicketStatus { VALID USED CANCELLED EXPIRED }
+
+
+enum AiQueryType {
+  GENERAL
+  SALES_FORECAST
+  DEMAND_FORECAST
+  INVENTORY_ALERT
+  OCCUPANCY_ANALYSIS
+  BUSINESS_INSIGHT
+}
+
+model AiQuery {
+  id String @id @default(cuid())
+  userId String?
+  type AiQueryType
+  prompt String
+  response String?
+  createdAt DateTime @default(now())
+  @@index([type,createdAt])
+}
+
+model AiPrediction {
+  id String @id @default(cuid())
+  type String
+  targetDate DateTime?
+  metric String
+  predictedValue Decimal? @db.Decimal(14,2)
+  confidence Decimal? @db.Decimal(5,4)
+  explanation String?
+  createdAt DateTime @default(now())
+  @@index([type,targetDate])
+}
